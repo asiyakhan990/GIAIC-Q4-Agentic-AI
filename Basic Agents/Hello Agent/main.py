@@ -2,6 +2,7 @@ import os
 from agents import Agent, Runner, AsyncOpenAI, OpenAIChatCompletionsModel, RunConfig
 from dotenv import load_dotenv
 import chainlit as cl
+from openai.types.responses import ResponseTextDeltaEvent
 
 load_dotenv()
 
@@ -40,12 +41,18 @@ async def handle_start():
 async def handle_message(message: cl.Message):
     history = cl.user_session.get("history")
 
+    msg = cl.Message(content="")
+    await msg.send()
+
     history.append({"role": "user", "content":message.content})
-    result = await Runner.run(
+    result = Runner.run_streamed(
         agent,
         input=history,
         run_config=config
     )
-    history.append({"role": "assistant", "content": result.final_output})
+    async for event in result.stream_events():
+        if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
+            await msg.stream_token(event.data.delta)
+    history.append({"role": "user", "content": result.final_output})
     cl.user_session.set("history", history)
-    await cl.Message(content=result.final_output).send()
+    # await cl.Message(content=result.final_output).send()
